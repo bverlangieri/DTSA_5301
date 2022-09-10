@@ -1,0 +1,78 @@
+---
+title: "NYPD Shooting Incident Data Analysis"
+author: "Bianca Verlangieri"
+date: "2022-08-29"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Setup
+
+This is an R Markdown document describing the NYPD Shooting Incident Data Analysis. First we load in the appropriate libraries. Note that I suppressed the output from loading in these libraries.
+
+```{r setup, message=FALSE}
+library(RCurl)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+```
+
+## Data Download
+
+Next we download the data from the URL (rather than storing it locally). We also print out a summary of the data we just loaded.
+
+```{r download}
+link_to_download = getURL("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+nypd_data <- read.csv(text = link_to_download)
+summary(nypd_data)
+```
+
+## Cleaning of the Data
+
+Now that we have looked at a brief summary of the data, we can start cleaning it up. First, we notice there is a column called OCCUR_DATE that is currently of type character. We'll use the code below to turn these entries into doubles, so it will be easier to sort, plot, and more. We can check the type of the column before and after we change it, and access each column in the data using the $ symbol.
+
+```{r clean}
+typeof(nypd_data$OCCUR_DATE)
+nypd_data$OCCUR_DATE <- mdy(nypd_data$OCCUR_DATE)
+typeof(nypd_data$OCCUR_DATE)
+```
+
+## Visualization
+
+Now that we've cleaned up the data a bit let's visualize the data and see if we find anything interesting. First, let's look at a bar plot to show the number of shooting incidents per borough or town within New York City. Since this is categorical data, we need to convert it to a factor first. We'll use ggplot to help us plot the data.
+
+```{r visualize}
+borough = as.factor(nypd_data$BORO)
+ggplot(data.frame(borough), aes(x=borough)) + geom_bar()
+```
+It looks like Brooklyn had the most shooting incidents in this data set, compared to the other boroughs. Next let's look at some victim categorical data, like age and sex.
+
+```{r visualize victims}
+
+victim_age = as.factor(nypd_data$VIC_AGE_GROUP)
+ggplot(data.frame(victim_age), aes(x=victim_age)) + geom_bar()
+
+victim_sex = as.factor(nypd_data$VIC_SEX)
+ggplot(data.frame(victim_sex), aes(x=victim_sex)) + geom_bar()
+```
+
+From these counts, it looks like most victims were age 25-44 and male.
+
+## Analysis
+
+Let's see if there are any relationships in this data by creating a binomial logistic regression model. Since male victims and shooting incidents in Brooklyn are most dominant in the shooting data, let's put those into our model.
+
+```{r model}
+
+nypd_data$isMale <- factor(nypd_data$VIC_SEX=="M")
+nypd_data$isBrooklyn <- factor(nypd_data$BORO=="BROOKLYN")
+mod <- glm(nypd_data$isMale ~ nypd_data$isBrooklyn, family = binomial())
+summary(mod)
+
+```
+Since the p value is significant (under 0.05), these independent variables are significant.
+
+## Conclusions
+
+We have just scraped the surface with this data. We identified in which borough the most shooting incidents occurred (Brooklyn) and that more males were victims than females. In using a binomial logistic regression model we identified that these independent variables are significant. This data has been collected since 2006, but is only reported and logged data, so there could exist bias in the data from incidents that were unreported. For example, there could be more responding officers in Brooklyn, so more shooting incidents are reported. Just an example, more investigation would need to be done to identify bias.
