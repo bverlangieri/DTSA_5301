@@ -1,0 +1,118 @@
+---
+title: "Johns Hopkins COVID Data Analysis"
+author: "Bianca Verlangieri"
+date: "2022-09-10"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Setup
+
+This is an R Markdown document describing the Johns Hopkins COVID Data Analysis. First we load in the appropriate libraries. You'll see that I suppressed the output from loading in these libraries.
+
+```{r setup, message=FALSE}
+library(RCurl)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+```
+
+## Data Download
+
+Now we download the data directly from the GitHub URL (rather than storing it locally). We also print out a summary of the data we just loaded. The data I've chosen to load first is the COVID death and case count which includes time series data. I chose to look at data just from the US first (rather than global data).
+
+```{r download}
+link_to_download = "https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv"
+covid_data_us_deaths <- read_csv(link_to_download,show_col_types=FALSE)
+covid_data_us_deaths
+
+link_to_download = "https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv"
+covid_data_us_cases <- read_csv(link_to_download,show_col_types=FALSE)
+covid_data_us_cases
+```
+
+## Cleaning of the Data
+
+Now that we have looked at a brief summary of the data, we can start cleaning it up. You'll notice it printed out a lot of information, and that's because the dates were stored as separate variables. We are going to follow the code that was shown in class, to consolidate and rename the fields we are interested in, like dates and numbers of deaths and cases. Let's look at a summary of the data after we've cleaned it up and combined into 1 data set.
+
+```{r clean}
+covid_data_us_deaths <- covid_data_us_deaths %>% pivot_longer(cols = -(UID:Population), names_to = "date", values_to = "deaths") %>% select(Admin2:deaths) %>% mutate(date = mdy(date)) %>% select(-c(Lat, Long_))
+
+covid_data_us_cases <- covid_data_us_cases %>% pivot_longer(cols = -(UID:Combined_Key), names_to = "date", values_to = "cases")  %>% select(Admin2:cases) %>% mutate(date = mdy(date)) %>% select (-c(Lat, Long_))
+
+
+covid_data <- covid_data_us_deaths %>%
+  full_join(covid_data_us_cases)
+
+summary(covid_data)
+
+```
+
+## Visualization
+
+Now that we've cleaned up the data a bit let's visualize the data and see if we find anything interesting. We'll use ggplot to help us plot the data. First, we'll grab just the data from the state of Colorado. I want to look at how many COVID deaths there were per county.
+
+```{r visualize}
+colorado_data <- covid_data %>%
+  filter(Province_State == "Colorado", deaths > 0, cases > 0, Population > 0) %>%
+  group_by(date, Admin2)
+co_counties_deaths <- colorado_data %>% 
+  group_by(Admin2) %>% 
+  summarise(Frequency = sum(deaths))
+ggplot(co_counties_deaths[1:6,], aes(x=Admin2, y=Frequency)) + geom_bar(stat="identity")
+```
+Now I just plotted the first 6 (which are in alphabetical order) because there are a lot of counties. Let's try to plot the top 6 counties with most COVID deaths.
+
+```{r visualize 2}
+
+co_counties_deaths = co_counties_deaths[order(-co_counties_deaths$Frequency),]
+ggplot(co_counties_deaths[1:6,], aes(x=Admin2, y=Frequency)) + geom_bar(stat="identity")
+
+```
+
+From these counts, it looks like El Paso, Denver, and Jefferson County had the most COVID deaths. This our some of the biggest counties in Colorado, so that makes sense. But how does this look if we normalize the counties by population?
+
+```{r visualize 3}
+
+co_counties_norm <- colorado_data %>% 
+  group_by(Admin2) %>% 
+  summarise(Frequency = sum(deaths/Population))
+co_counties_norm = co_counties_norm[order(-co_counties_norm$Frequency),]
+ggplot(co_counties_norm[1:6,], aes(x=Admin2, y=Frequency)) + geom_bar(stat="identity")
+
+```
+Looks like some fairly small counties took the cake on this one, let's check and make sure that these also had small populations.
+
+```{r visualize 4}
+co_counties_pop <- colorado_data %>% 
+  group_by(Admin2) %>% 
+  summarise(Frequency = sum(Population))
+co_counties_pop = co_counties_pop[order(co_counties_pop$Frequency),]
+ggplot(co_counties_pop[1:6,], aes(x=Admin2, y=Frequency)) + geom_bar(stat="identity")
+```
+
+Looks like Cheyenne was the only one in the smallest six counties, so looks like this might not be too biased by population when normalized.
+
+## Analysis
+
+Let's see if there are any relationships in this data by looking at the Colorado county total cases and deaths normalized by population.
+
+```{r model}
+
+colorado_data <- colorado_data %>%
+  group_by(Admin2) %>%
+  summarize(deaths = max(deaths), cases = max(cases), Population = max(Population)) %>%
+  mutate(cases_per_hundred = 100 * cases / Population, deaths_per_hundred = 100 * deaths / Population ) %>%
+  select(Admin2, cases, deaths, Population, cases_per_hundred, deaths_per_hundred)
+
+mod <- lm(deaths_per_hundred ~ cases_per_hundred, data = colorado_data)
+
+summary(mod)
+
+```
+The p value for cases per hundred is less than 0.05 which means that it could be significant. The p value for the model is 0.2795. Both need to be less than 0.05 for the linear model to be statistically significant.
+
+## Conclusions
+
+We have looked at COVID-19 data from Johns Hopkins university in the US, and specifically in the state of Colorado. We looked at numbers of cases, deaths, and population size in different counties. We found El Paso and Denver county to have the most COVID-19 deaths, but not the most deaths by population in that county. We looked at a linear model for cases and deaths normalized by population, but did not find a statistically signficiant relationship. There could be bias in this data, for example, based on how the data was collected in each county. Some counties may have people reporting more cases and deaths than others (more cases gone unreported) which could largely impact the data, especially in smaller counties.
